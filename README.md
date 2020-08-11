@@ -44,7 +44,7 @@ Tips for setting up your environment can be found [here](https://classroom.udaci
 
 ### PID
 PID control is a technique to redule the trajectory error by using P, I and D on cross tracking error (CTE) and defined as this:
-<img src="img/pid_formula.png" width="480">
+<img src="img/pid_formula.png" width="480" />
 
 The P, or "proportional", component had the most directly observable effect on the car's behavior. It causes the car to steer proportional (and opposite) to the car's distance from the lane center (which is the CTE) - if the car is far to the right it steers hard to the left, if it's slightly to the left it steers slightly to the right.
 
@@ -56,3 +56,7 @@ The I, or "integral", component counteracts a bias in the CTE which prevents the
 Hyperparameter, Kp, Ki and Kd can be tuned in different ways such as trial-and-error, SGD. Here, I used Twiddle from the lecture. 
 First, I tried manual tuning to find the initial values and then run twiddle to finetune the parameter using the first 600 data points.
 The resulting parameter was, Kp=0.15, Ki=0.001, Kd=1.7.
+
+### Simulation
+Finally, run the simulator to confirm the vehicle can drive a round without going off track.
+<img src="img/simulator.png" width="640" />
