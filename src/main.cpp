@@ -31,43 +31,53 @@ string hasData(string s) {
   return "";
 }
 
-int main() {
+int main(int argc, char *argv[]) {
   uWS::Hub h;
 
   PID pid;
   /**
    * TODO: Initialize the pid variable.
    */
-    vector<double> p = {0.15000, 0.00100,1.70000}; // initial p vector
-    vector<double> dp = {0.01000, 0.00010, 0.1000};
-    vector<double> p_best = {p[0],p[1],p[2]}; // initial best p vector
+      
+  // Show arguments passed
+  std::cout << "Please pass 'twiddle' as the first argument to run twiddle parameter search." << std::endl;
+  std::cout << "The number of arguments passed: " << argc << std::endl;
+  std::cout << "---- Arguments passed (FYI) ----" << std::endl;
+  for(int counter=0; counter < argc; counter++)
+    std::cout << "argv[" << counter << "]: " << argv[counter] << std::endl;
     
-    
+  // Initialize
+  vector<double> p = {0.1, 0.001, 2};
+  vector<double> dp = {0.01, 0.0001, 0.2};
+  
+  bool is_twiddle = false;
+  if (argc>=2)
+    if (std::string(argv[1]) == "twiddle")
+      is_twiddle = true;
 
-    bool is_twiddle = false; // Twiddle argorithm to find p vector
-    bool is_first = true;
-    bool is_second = true;
-    bool is_move = false;
-        
-    int n = 0; // start/reset point of simulator, each cycle of simulator -> n+1
-    int n_begin = 0; // where to start to calculate error
-    int n_end = 700; // where to end to calculate error and reset the simulator
-    int p_ind = 0; // index of parameter of vector p
-    int iteration = 0; // how many vehicle loops of simulator have runed
-
-    double total_error = 0.0;
-    double error = 0.0;
-    double best_error = 999999;
-    double tolerance =0.1;
-    bool best_parameter = false;
-
-
-    pid.Init(p[0],p[1],p[2]);
-    
-    h.onMessage(
-            [&pid, &n, &n_begin, &n_end, &total_error, &error, &is_twiddle, &is_first, &is_second, &p, &p_ind, &dp, &best_parameter, &p_best, &best_error, &iteration, &is_move, &tolerance](
-                    uWS::WebSocket <uWS::SERVER> ws, char *data, size_t length,
-                    uWS::OpCode opCode) {
+  int data_cnt = 0;
+  int twiddle_cnt = 0;
+  int p_index = 0;
+  
+  bool first_chk = true;
+  bool second_chk = true;
+  bool third_chk = true;
+  
+  double error = 0.0;
+  double best_err = 0.0;
+  int n = 1000;
+  double tolerance = 0.1;
+  
+  if (is_twiddle){
+    pid.Init(p[0], p[1] ,p[2]);
+  } else {
+    // Specify the best hyperparameters found by twiddle here!
+    pid.Init(0.109, 0.001, 2.6378);
+  }
+  
+  h.onMessage(
+    [&pid, &is_twiddle, &p, &dp, &p_index, &data_cnt, &twiddle_cnt, &error, &n, &best_err, &tolerance, &first_chk, &second_chk, &third_chk](
+      uWS::WebSocket <uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
@@ -91,118 +101,79 @@ int main() {
            * NOTE: Feel free to play around with the throttle and speed.
            *   Maybe use another PID controller to control the speed!
            */
-          json msgJson;
-          if (is_twiddle) {
-            int n_interval = n_end - n_begin;
-            // initialize the PID when restart the simulator
-            if (n == 0) {
-                pid.Init(p[0], p[1], p[2]);
-            }
-            // calculate the sum of error
-            if (n > n_begin && n < n_end) {
-                total_error += cte * cte;
-            }
-            // update the PID and calculate steer value which should been [-1,1]
-            pid.UpdateError(cte);
-            steer_value = pid.TotalError();
-
-            if (steer_value > 1) {
-                steer_value = 1;
-            } else if (steer_value < -1) {
-                steer_value = -1;
-            }
-            // next point/next cycle
-            n += 1;
-            // after finishing each simulator loop, use twiddle
-            if (n > n_end) {
-              if (iteration==0) {
-                best_error = total_error / n_interval;
-              }
-              // whether p should be increased
-              if (is_first) {
-                p[p_ind] += dp[p_ind];
-                is_first = false;
+          if (is_twiddle && data_cnt==0)
+            std::cout << std::endl << "Run with p: " << p[0] << ", " << p[1] << ", " << p[2]<< ", dp: " << dp[0] << ", " << dp[1] << ", " << dp[2] << std::endl;
+          
+          // Calculate total error
+          error += cte * cte;
+          
+          if (is_twiddle && data_cnt == n){
+            std::cout << "## Twiddle cycle: " << twiddle_cnt << ", p index: " << p_index << " started with first_chk[" << first_chk << "], second_chk[" << second_chk << "] and third_chk[" << third_chk << "]" << std::endl;
+            error = error / n;
+            std::cout << "error: " << error << std::endl;
+            if (twiddle_cnt==0 && p_index==0 && first_chk==true)
+              best_err = error;
+            
+            if (first_chk) {
+              first_chk = false;
+              p[p_index] += dp[p_index];
+              pid.Init(p[0], p[1] ,p[2]);
+              std::cout << "p updated to: " << p[0] << ", " << p[1] << ", " << p[2] << std::endl;
+            } else {
+              if (error < best_err) {
+                std::cout << "After increasing p, error [" << error << "] is less than best_err [" << best_err << std::endl;
+                best_err = error;
+                dp[p_index] *= 1.1;
+                std::cout << "dp updated to: " << dp[0] << ", " << dp[1] << ", " << dp[2] << std::endl;
+                second_chk = false;
+                third_chk = false;
               } else {
-                error = total_error / n_interval;
-                // whether the increased p reduces the error and go into second drive
-                if (error < best_error && is_second) {
-                  p_best[0] = p[0];
-                  p_best[1] = p[1];
-                  p_best[2] = p[2];
-                  best_error = error;
-                  dp[p_ind] *= 1.1;
-                  is_move = true;
+                if (second_chk) {
+                  second_chk = false;
+                  p[p_index] -= 2 * dp[p_index];
+                  pid.Init(p[0], p[1] ,p[2]);
+                  std::cout << "p updated to: " << p[0] << ", " << p[1] << ", " << p[2] << std::endl;
                 } else {
-                  if (is_second) {
-                    // Reduce p
-                    p[p_ind] -= 2 * dp[p_ind];
-                    is_second = false;
+                  if (error < best_err) {
+                    std::cout << "After decreasing p, error [" << error << "] is less than best_err [" << best_err << std::endl;
+                    best_err = error;
+                    dp[p_index] *= 1.1;
+                    std::cout << " and dp increased by 10% to: " << dp[0] << ", " << dp[1] << ", " << dp[2] << std::endl;
                   } else {
-                    // Check the error again
-                    if (error < best_error) {
-                      p_best[0] = p[0];
-                      p_best[1] = p[1];
-                      p_best[2] = p[2];
-                      best_error = error;
-                      dp[p_ind] *= 1.1; // dp increase
-                      is_move = true;
-                    } else {
-                      p[p_ind] += dp[p_ind];
-                      dp[p_ind] *= 0.9; //dp reduce
-                      is_move = true;
-                    }
+                    std::cout << "Did not improve, so set p back to the original value" << std::endl;
+                    p[p_index] += dp[p_index];
+                    dp[p_index] *= 0.9;
+                    std::cout << " and dp decreased by 10% to: " << dp[0] << ", " << dp[1] << ", " << dp[2] << std::endl;
                   }
+                  third_chk = false;
                 }
               }
-              // if the corresponding check have been complete,  is_move to next index,
-              if (is_move) {
-                p_ind += 1;
-                cout << "move_index: " << p_ind << endl;
-                is_first = true;
-                is_second = true;
-                is_move = false;
-              } else {
-                cout << "stay_index " << p_ind << endl;
-              }
-              // p[0], p[1], p[2]
-              if (p_ind == 3) {
-                p_ind = 0;
-              }
-
-              double sum_dp = dp[0] + dp[1] + dp[2];
-
-              if (sum_dp < tolerance) {
-                best_parameter = true;
-              }
-              n = 0;
-              iteration += 1;
-              total_error = 0.0;
-
-              if (n == 0 && !best_parameter) {
-                std::string reset_msg = "42[\"reset\",{}]";
-                ws.send(reset_msg.data(), reset_msg.length(), uWS::OpCode::TEXT);
-              } else if (best_parameter) {
-                std::cout << "find best p" << std::endl;
-                std::cout << "best p" << p_best[0] << "," << p_best[1] << "," << p_best[2]<< ", "<< std::endl;
-              }
-
-              std::cout << "iteration: " << iteration << std::endl;
-              std::cout << "best_error: " << best_error << std::endl;
-              std::cout << "current best p up till now: " << p_best[0] << ", " << p_best[1]<< ", "<< p_best[2] << ", " << std::endl;
-              std::cout << "sum of dp: " << sum_dp << std::endl;
-              if (is_first) {
-                std::cout << "first drive: " << " next p index: "<<p_ind << " current p value: " << p[0] << ", "<< p[1]<< ", "<< p[2]<< std::endl;
-              } else {
-                std::cout << "second drive: " << " next p index: "<<p_ind << " current p value: " << p[0] << ", "<< p[1]<< ", "<< p[2]<< std::endl;
-              }
-              cout << endl;
-            } else {
-                msgJson["steering_angle"] = steer_value;
-                msgJson["throttle"] = 0.3;
-                auto msg = "42[\"steer\"," + msgJson.dump() + "]";
-                ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
             }
+            if (!first_chk && !second_chk && !third_chk){
+              std::cout << "updating index..." << std::endl;
+              p_index += 1;
+              first_chk = true;
+              second_chk = true;
+              third_chk = true;
+              if (p_index == 3) {
+                double sum_dp = dp[0] + dp[1] + dp[2];
+                std::cout << "## Twiddle cycle: " << twiddle_cnt << " completed, sum_dp: "<< sum_dp << std::endl;
+                if (sum_dp < tolerance) {
+                  std::cout << "### Twiddle Completed ###" << std::endl;
+                  std::cout << "Best p: " << p[0] << ", " << p[1] << ", " << p[2]<< ", and dp: " << dp[0] << ", " << dp[1] << ", " << dp[2] << std::endl;
+                  ws.close();
+                } else {
+                  twiddle_cnt += 1;
+                  p_index = 0;
+                }
+              }
+            }
+            data_cnt = -1;
+            error = 0.0;
+            std::string msg = "42[\"reset\",{}]";
+            ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
           } else {
+            json msgJson;
             pid.UpdateError(cte);
             steer_value = pid.TotalError();
             if (steer_value > 1) {
@@ -210,15 +181,16 @@ int main() {
             } else if (steer_value < -1) {
               steer_value = -1;
             }
-
+            data_cnt += 1;
+            
             // DEBUG
-            std::cout << "CTE: " << cte << " Steering Value: " << steer_value
-                      << std::endl;
+            if (!is_twiddle)
+              std::cout << "CTE: " << cte << " Steering Value: " << steer_value << " Total Error: " << error << std::endl;
 
             msgJson["steering_angle"] = steer_value;
-            msgJson["throttle"] = 0.3;
+            msgJson["throttle"] = 0.6;
             auto msg = "42[\"steer\"," + msgJson.dump() + "]";
-            std::cout << msg << std::endl;
+            // std::cout << msg << std::endl;
             ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
           }
         }  // end "telemetry" if
